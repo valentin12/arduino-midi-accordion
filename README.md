@@ -9,13 +9,12 @@ The extension is based on an Arduino Mega 2560 and programmed in C++, all the co
 If someone has a question about a technical detail, feel free to open an issue or write a comment.
 
 ##Chords
-<img src="img/octave_up.jpg" style="width:200px;height:100px;border-radius:10px;clear:both;float:left;">
-<p style="float:left;margin: 0 0 0 10px;">Plays everything one octave higher</p>
-<img src="img/octave_down.jpg" style="width:200px;height:100px;border-radius:10px;clear:both;float:left;">
-<p style="float:left;margin:38px 0 0 10px;">Plays everything one octave lower</p>
-<img src="img/reset.jpg" style="width:200px;height:100px;border-radius:10px;clear:both;float:left;">
-<p style="float:left;margin:38px 0 0 10px;">Reset</p>
-<span style="clear:both;"></span>
+<p>Play everything one octave higher</p>
+<img src="img/octave_up.jpg" width="200px"">
+<p>Play everything one octave lower</p>
+<img src="img/octave_down.jpg" width="200px">
+<p>Reset</p>
+<img src="img/reset.jpg" width="200px">
 
 <h2 style="float:left;clear:both;">Images</h2>
 <img src="img/accordion_front.jpg" style="width:400px;height:299px;border-radius:10px;margin:5px;clear:both;float:left;">
