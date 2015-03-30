@@ -1,0 +1,9 @@
+*.o
+*~
+*.hex
+.lib
+.dep
+_build
+_static
+_templates
+README.html
