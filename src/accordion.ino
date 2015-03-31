@@ -59,6 +59,9 @@ int getNote(const int base, const int add_octaves, const int note) {
 };
 
 void sendMIDI(const int cmd, const int note, const int velocity) {
+  Serial1.write(cmd);
+  Serial1.write(note);
+  Serial1.write(velocity);
   Serial.write(cmd);
   Serial.write(note);
   Serial.write(velocity);
@@ -180,7 +183,12 @@ void setup() {
   for (int i=0;i<switch_count;i++) {
     pinMode(switches[i], INPUT);
   }
-  Serial.begin(31250);
+  // Setup Serial1 with the standard MIDI baud rate of 31250
+  // to get MIDI on TX1 (pin 18)
+  Serial1.begin(31250);
+  // Setup Serial (TX0 and USB) with the baudrate 9600 to be able to use
+  // an Serial to MIDI converter on a PC
+  Serial.begin(9600);
 };
 
 // the loop routine runs over and over again forever:
