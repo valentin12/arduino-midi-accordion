@@ -2,6 +2,8 @@
 const int NOTE_ON = 0x90;
 const int NOTE_OFF = 0x80;
 const int CONTROL_CHANGE = 0xB0;
+const int PROGRAM_CHANGE = 0xC0;
+const int PITCH_BEND_CHANGE = 0xE0;
 
 typedef void (*FunctionArray) ();
 
@@ -15,12 +17,19 @@ const boolean COMMAND_OCTAVE_DOWN[] = {
 const boolean COMMAND_RESET[] = {
   false, false, false, true, false, false, false, false, false, false, false, false, false,
   true, false, false, false, true, false, false, true, false, false, true, false, false};
-
+const boolean COMMAND_PROGRAM_UP[] = {
+  false, false, false, false, true, false, false, false, false, false, false, false, false,
+  true, false, false, false, true, false, false, true, false, false, false, true, false};
+const boolean COMMAND_PROGRAM_DOWN[] = {
+  false, false, true, false, false, false, false, false, false, false, false, false, false,
+  true, false, false, false, true, false, false, true, false, false, false, true, false};
 
 // 26 keys
 const int key_count = 26;
 // Send on MIDI channel 1
 int channel = 1;
+// Program 1: Piano
+int program = 0;
 
 // poti pins
 int vol_pin = 0;
@@ -28,8 +37,10 @@ int wheel_pin = 1;
 
 int new_wheel_val = 0;
 int wheel_val = 0x40;
+boolean wheel_dir = false;
 int new_vol = 0;
 int vol = 0x45;
+boolean vol_dir = false;
 
 int note_vol = 0x45;
 
@@ -50,7 +61,7 @@ int playing[0x7f];
 boolean changed = false;
 boolean command = false;
 
-const int command_count = 3;
+const int command_count = 5;
 FunctionArray command_functions[command_count];
 boolean commands[command_count][key_count];
 
@@ -66,6 +77,13 @@ void sendMIDI(const int cmd, const int note, const int velocity) {
   Serial.write(note);
   Serial.write(velocity);
 };
+
+void sendShortMIDI(const int cmd, const int val) {
+  Serial1.write(cmd);
+  Serial1.write(val);
+  Serial.write(cmd);
+  Serial.write(val);
+}
 
 void commandReset() {
   sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
@@ -88,6 +106,22 @@ void commandOctaveDown() {
     sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
     for (int note=0;note<0x7f;note++) playing[note] = 0;
   }
+};
+
+void commandProgramUp() {
+  if (program >= 0x7f)
+    program = 0;
+  else
+    program++;
+  sendShortMIDI(PROGRAM_CHANGE | channel, program);
+};
+
+void commandProgramDown() {
+  if (program <= 0)
+    program = 0x7f;
+  else
+    program--;
+  sendShortMIDI(PROGRAM_CHANGE | channel, program);
 };
 
 boolean isCommand(const boolean pressed[], const boolean command[]) {
@@ -169,9 +203,13 @@ void setup() {
   for (int key=0;key<key_count;key++) commands[0][key] = COMMAND_RESET[key];
   for (int key=0;key<key_count;key++) commands[1][key] = COMMAND_OCTAVE_UP[key];
   for (int key=0;key<key_count;key++) commands[2][key] = COMMAND_OCTAVE_DOWN[key];
+  for (int key=0;key<key_count;key++) commands[3][key] = COMMAND_PROGRAM_UP[key];
+  for (int key=0;key<key_count;key++) commands[4][key] = COMMAND_PROGRAM_DOWN[key];
   command_functions[0] = commandReset;
   command_functions[1] = commandOctaveUp;
   command_functions[2] = commandOctaveDown;
+  command_functions[3] = commandProgramUp;
+  command_functions[4] = commandProgramDown;
   for (int i=0;i<0x7f;i++) {
     playing[i] = 0;
   }
@@ -189,6 +227,8 @@ void setup() {
   // Setup Serial (TX0 and USB) with the baudrate 9600 to be able to use
   // an Serial to MIDI converter on a PC
   Serial.begin(9600);
+  sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+  sendShortMIDI(PROGRAM_CHANGE, program);
 };
 
 // the loop routine runs over and over again forever:
@@ -197,7 +237,7 @@ void loop() {
   changed = false;
   for (int key=0;key<key_count;key++) {
     cur_pressed[key] = digitalRead(keys[key]);
-    changed = changed || cur_pressed[key] != last_pressed[key];
+    changed = changed || (cur_pressed[key] != last_pressed[key]);
   }
   if (changed) {
     command = computeCommands(cur_pressed);
@@ -210,17 +250,42 @@ void loop() {
       last_pressed[key] = cur_pressed[key];
     }
   }
-  // read volume
+  // read volume, check if diference > 1 if direction changed to prevent
+  // switching between two values all the time
   new_vol = 0x7f - (int) (((analogRead(vol_pin)) / 1023.0) * 0x7f);
   if (new_vol != vol) {
-    vol = new_vol;
-    sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+    if (new_vol > vol) {
+      if (vol_dir || new_vol - vol > 1) {
+	vol_dir = true;
+	vol = new_vol;
+	sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+      }
+    }
+    else {
+      if (!vol_dir || vol - new_vol > 1) {
+	vol_dir = false;
+	vol = new_vol;
+	sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+      }
+    }
   }
   // read 2nd poti
   new_wheel_val = 0x7f - (int) (((analogRead(wheel_pin)) / 1023.0) * 0x7f);
   if (new_wheel_val != wheel_val) {
-    wheel_val = new_wheel_val;
-    sendMIDI(CONTROL_CHANGE | channel, 0x09, wheel_val);
+    if (new_wheel_val > wheel_val) {
+      if (wheel_dir || new_wheel_val - wheel_val > 1) {
+	wheel_dir = true;
+	wheel_val = new_wheel_val;
+	sendMIDI(PITCH_BEND_CHANGE | channel, wheel_val, 0);
+      }
+    }
+    else {
+      if (!wheel_dir || wheel_val - new_wheel_val > 1) {
+	wheel_dir = false;
+	wheel_val = new_wheel_val;
+	sendMIDI(PITCH_BEND_CHANGE | channel, wheel_val, 0);
+      }
+    }
   }
   if (!command) {
     for (int i=0;i<switch_count;i++) {
