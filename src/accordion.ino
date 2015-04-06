@@ -1,6 +1,5 @@
 // MIDI commands
 const int NOTE_ON = 0x90;
-const int NOTE_OFF = 0x80;
 const int CONTROL_CHANGE = 0xB0;
 const int PROGRAM_CHANGE = 0xC0;
 const int PITCH_BEND_CHANGE = 0xE0;
@@ -65,24 +64,33 @@ const int command_count = 5;
 FunctionArray command_functions[command_count];
 boolean commands[command_count][key_count];
 
+// last status byte to implement MIDI running status
+int last_status_byte = 0;
+
 int getNote(const int base, const int add_octaves, const int note) {
   return base + (octave + add_octaves) * 12 + note;
 };
 
 void sendMIDI(const int cmd, const int note, const int velocity) {
-  Serial1.write(cmd);
+  if (cmd != last_status_byte)
+    Serial1.write(cmd);
   Serial1.write(note);
   Serial1.write(velocity);
-  Serial.write(cmd);
+  if (cmd != last_status_byte)
+    Serial.write(cmd);
   Serial.write(note);
   Serial.write(velocity);
+  last_status_byte = cmd;
 };
 
 void sendShortMIDI(const int cmd, const int val) {
-  Serial1.write(cmd);
+  if (cmd != last_status_byte)
+    Serial1.write(cmd);
   Serial1.write(val);
-  Serial.write(cmd);
+  if (cmd != last_status_byte)
+    Serial.write(cmd);
   Serial.write(val);
+  last_status_byte = cmd;
 }
 
 void commandReset() {
@@ -150,7 +158,7 @@ boolean computeKeyInput(int key) {
       if (switch_vals[l] && playing[getNote(base_note, l - 1, key)] > 0) {
 	playing[getNote(base_note, l - 1, key)] -= 1;
 	if (playing[getNote(base_note, l - 1, key)] == 0) {
-	  sendMIDI(NOTE_OFF | channel, getNote(base_note, l - 1, key), note_vol);
+	  sendMIDI(NOTE_ON | channel, getNote(base_note, l - 1, key), 0);
 	}
       }
     }
@@ -179,7 +187,7 @@ void computeSwitchInput(int switch_ind, int value) {
 	// remove playing from octave
 	playing[getNote(base_note, switch_ind - 1, key)] -= 1;
 	if (playing[getNote(base_note, switch_ind - 1, key)] <= 0) {
-	  sendMIDI(NOTE_OFF | channel, getNote(base_note, switch_ind - 1, key), note_vol);
+	  sendMIDI(NOTE_ON | channel, getNote(base_note, switch_ind - 1, key), 0);
 	}
       }
       else if (last_pressed[key] &&
@@ -199,7 +207,7 @@ void computeSwitchInput(int switch_ind, int value) {
 
 // the setup routine runs once when you press reset:
 void setup() {
-  octave = 0;
+  last_status_byte = 0;
   for (int key=0;key<key_count;key++) commands[0][key] = COMMAND_RESET[key];
   for (int key=0;key<key_count;key++) commands[1][key] = COMMAND_OCTAVE_UP[key];
   for (int key=0;key<key_count;key++) commands[2][key] = COMMAND_OCTAVE_DOWN[key];
