@@ -276,14 +276,14 @@ void loop() {
       if (wheel_dir || new_wheel_val - wheel_val > 1) {
 	wheel_dir = true;
 	wheel_val = new_wheel_val;
-	sendMIDI(PITCH_BEND_CHANGE | channel, wheel_val, 0);
+	sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
       }
     }
     else {
       if (!wheel_dir || wheel_val - new_wheel_val > 1) {
 	wheel_dir = false;
 	wheel_val = new_wheel_val;
-	sendMIDI(PITCH_BEND_CHANGE | channel, wheel_val, 0);
+	sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
       }
     }
   }
