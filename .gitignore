@@ -1,6 +1,7 @@
 *.o
 *~
 *.hex
+*.xcf
 .lib
 .dep
 _build

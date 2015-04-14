@@ -9,8 +9,12 @@ The extension is based on an Arduino Mega 2560 and programmed in C++, all the co
 If someone has a question about a technical detail, feel free to open an issue or write a comment.
 
 ##Chords
+<p>Select next program</p>
+<img src="img/program_up.jpg" width="200px">
+<p>Select previous program</p>
+<img src="img/program_down.jpg" width="200px">
 <p>Play everything one octave higher</p>
-<img src="img/octave_up.jpg" width="200px"">
+<img src="img/octave_up.jpg" width="200px">
 <p>Play everything one octave lower</p>
 <img src="img/octave_down.jpg" width="200px">
 <p>Reset</p>
