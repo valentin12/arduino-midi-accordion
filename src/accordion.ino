@@ -1,5 +1,8 @@
 #include <LiquidCrystal.h>
-LiquidCrystal lcd(22, 24, 30, 32, 34, 36);
+#include <BMP280.h>
+
+LiquidCrystal lcd(22, 24, 34, 32, 30, 28);
+BMP280 bmp;
 
 const char PROGRAMS[][27] = {
   "1 Acoustic Grand Piano",
@@ -163,27 +166,33 @@ const int key_count = 26;
 int channel = 1;
 // Program 1: Piano
 int program = 0;
+// Bank 1
+int bank = 0;
 
 // poti pins
 int vol_pin = 0;
+// wheel = pitch
 int wheel_pin = 1;
 
 int new_wheel_val = 0;
 int wheel_val = 0x40;
 boolean wheel_dir = false;
+int new_vol_wheel = 0;
 int new_vol = 0;
+int vol_wheel = 0;
 int vol = 0x45;
 boolean vol_dir = false;
 
 int note_vol = 0x45;
 
+// COMMAND MODE
 int command_switch = 46;
 int command_led = 13;
 int command_switch_val = 0;
 int command_switch_new_val = 0;
 boolean command_mode = false;
-const int command_mode_count = 5;
-int command_keys[] = {2, 3, 4, 7, 9};
+int command_keys[] = {2, 3, 4, 7, 9, 11, 14, 19, 21, 5, 6};
+const int command_mode_count = 11;
 FunctionArray command_mode_functions[command_mode_count];
 
 // 3 switches for 3 octaves
@@ -194,6 +203,7 @@ int switch_new_vals[] = {0, 0, 0};
 
 // base MIDI note b
 int base_note = 0x3B;
+// octave 0: normal
 int octave = 0;
 int keys[] = {41, 53, 39, 51, 37, 49, 35, 47, 33, 45, 31, 43,
               29, 27,  2, 25,  4,  3,  6,  5,  8,  7, 10,  9, 12, 11};
@@ -203,10 +213,18 @@ int playing[0x7f];
 boolean changed = false;
 boolean is_chord_command = false;
 
-
+// chord commands
 const int command_count = 5;
 FunctionArray command_functions[command_count];
 boolean commands[command_count][key_count];
+
+// pressure in bellow
+const double BMP_MAX_DIFF = 10;
+// bmp_center changes daily. commandCallibrate sets it
+double bmp_center = 988.3;
+double pressure, temperature;
+char measure_success;
+boolean use_pressure, pressure_available;
 
 // last status byte to implement MIDI running status
 int last_status_byte = 0;
@@ -215,16 +233,52 @@ int getNote(const int base, const int add_octaves, const int note) {
   return base + (octave + add_octaves) * 12 + note;
 };
 
+double getPressure() {
+  measure_success = bmp.startMeasurment();
+  if (measure_success!=0) {
+    measure_success = bmp.getTemperatureAndPressure(temperature, pressure);
+    if (measure_success!=0) {
+      return pressure;
+    }
+  }
+  return 0;
+}
+
+int getVolume(const int vol_wheel, const double pressure) {
+  if (use_pressure && pressure_available) {
+    int tmp_vol = (abs(bmp_center - pressure) / BMP_MAX_DIFF) * vol_wheel * 1.4;
+    if (tmp_vol > 0x7f) {
+      return 0x7f;
+    }
+    return tmp_vol;
+  }
+  return vol_wheel;
+}
+
 void updateDisplay() {
+  // clear display
   lcd.clear();
   lcd.setCursor(0, 0);
+  // write program name
   lcd.print(PROGRAMS[program]);
   lcd.setCursor(0, 1);
+  // write octave difference
   lcd.print(octave);
   lcd.setCursor(4, 1);
-  lcd.print(vol);
+  // write bank
+  lcd.print(bank);
   lcd.setCursor(8, 1);
-  lcd.print(wheel_val);
+  // write pressure use
+  if (!pressure_available)
+    lcd.print("E");
+  else if (use_pressure)
+    lcd.print("P");
+  else
+    lcd.print("S");
+  lcd.setCursor(10, 1);
+  // write in command mode
+  if (command_mode)
+    lcd.print("C");
 };
 
 void sendMIDI(const int cmd, const int note, const int velocity) {
@@ -232,8 +286,11 @@ void sendMIDI(const int cmd, const int note, const int velocity) {
     Serial1.write(cmd);
   Serial1.write(note);
   Serial1.write(velocity);
-  if (cmd != last_status_byte)
-    Serial.write(cmd);
+  // if (cmd != last_status_byte)
+  //  Serial.write(cmd);
+  // do not use running status over USB. The serial to MIDI
+  // converter has problems with it
+  Serial.write(cmd);
   Serial.write(note);
   Serial.write(velocity);
   last_status_byte = cmd;
@@ -243,17 +300,20 @@ void sendShortMIDI(const int cmd, const int val) {
   if (cmd != last_status_byte)
     Serial1.write(cmd);
   Serial1.write(val);
-  if (cmd != last_status_byte)
-    Serial.write(cmd);
+  // if (cmd != last_status_byte)
+  //   Serial.write(cmd);
+  // see above
+  Serial.write(cmd)
   Serial.write(val);
   last_status_byte = cmd;
 }
 
 void commandReset() {
   sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
-  delay(5);
-  setup();
+  lcd.clear();
+  lcd.setCursor(0, 0);
   delay(1000);
+  setup();
 }
 
 void commandOctaveUp() {
@@ -272,6 +332,22 @@ void commandOctaveDown() {
   }
 };
 
+void commandBankUp() {
+  if (bank >= 0x7f)
+    bank = 0;
+  else
+    bank++;
+  sendMIDI(CONTROL_CHANGE | channel, 0x00, bank);
+};
+
+void commandBankDown() {
+  if (bank <= 0)
+    bank = 0x7f;
+  else
+    bank--;
+  sendMIDI(CONTROL_CHANGE | channel, 0x00, bank);
+};
+
 void commandProgramUp() {
   if (program >= 0x7f)
     program = 0;
@@ -287,6 +363,35 @@ void commandProgramDown() {
     program--;
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
 };
+
+void commandProgramUp10() {
+  if (program + 10 >= 0x7f)
+    program = program + 10 - 0x7f;
+  else
+    program += 10;
+  sendShortMIDI(PROGRAM_CHANGE | channel, program);
+};
+
+void commandProgramDown10() {
+  if (program - 10 <= 0)
+    program = program + 0x7f - 10;
+  else
+    program -= 10;
+  sendShortMIDI(PROGRAM_CHANGE | channel, program);
+};
+
+void commandCalibrate() {
+  if (!pressure_available) return;
+  bmp_center = getPressure();
+  for (byte i=0;i<50;i++) {
+    bmp_center = (bmp_center + getPressure()) / 2;
+    delay(10);
+  }
+}
+
+void commandTogglePressureUse() {
+  use_pressure = !use_pressure;
+}
 
 boolean isCommand(const boolean pressed[], const boolean command[]) {
   for (int key=0;key<key_count;key++) {
@@ -364,7 +469,7 @@ void computeSwitchInput(int switch_ind, int value) {
 
 void execCommandMode(boolean cur_pressed[]) {
   for (int i=0;i<command_mode_count;i++) {
-    if (cur_pressed[command_keys[i]] == HIGH && !last_pressed[command_keys[i]]) {
+    if (cur_pressed[command_keys[i]] && !last_pressed[command_keys[i]]) {
       // iteration for octave switches
       command_mode_functions[i]();
       updateDisplay();
@@ -380,6 +485,7 @@ void setup() {
   last_status_byte = 0;
   program = 0;
   vol = 0x45;
+  use_pressure = true;
   // command chords
   for (int key=0;key<key_count;key++) commands[0][key] = COMMAND_RESET[key];
   for (int key=0;key<key_count;key++) commands[1][key] = COMMAND_OCTAVE_UP[key];
@@ -397,6 +503,12 @@ void setup() {
   command_mode_functions[2] = commandProgramUp;
   command_mode_functions[3] = commandOctaveDown;
   command_mode_functions[4] = commandOctaveUp;
+  command_mode_functions[5] = commandCalibrate;
+  command_mode_functions[6] = commandTogglePressureUse;
+  command_mode_functions[7] = commandBankDown;
+  command_mode_functions[8] = commandBankUp;
+  command_mode_functions[9] = commandProgramDown10;
+  command_mode_functions[10] = commandProgramUp10;
 
   for (int i=0;i<0x7f;i++) {
     playing[i] = 0;
@@ -414,9 +526,16 @@ void setup() {
   // Setup Serial1 with the standard MIDI baud rate of 31250
   // to get MIDI on TX1 (pin 18)
   Serial1.begin(31250);
+  while(!Serial1) ;
   // Setup Serial (TX0 and USB) with the baudrate 9600 to be able to use
   // an Serial to MIDI converter on a PC
-  Serial.begin(9600);
+  Serial.begin(115200);
+  while(!Serial) ;
+  pressure_available = bmp.begin() > 0;
+  if (pressure_available) {
+    commandCalibrate();
+    bmp.setOversampling(4);
+  }
   updateDisplay();
   sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
@@ -436,11 +555,13 @@ void loop() {
     if (command_switch_new_val == HIGH) {
       digitalWrite(command_led, HIGH);
       command_mode = true;
+      updateDisplay();
       sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
     }
     else {
       digitalWrite(command_led, LOW);
       command_mode = false;
+      updateDisplay();
     }
   }
   if (changed) {
@@ -461,24 +582,25 @@ void loop() {
   }
   // read volume, check if diference > 1 if direction changed to prevent
   // switching between two values all the time
-  new_vol = 0x7f - (int) (((analogRead(vol_pin)) / 1023.0) * 0x7f);
-  if (new_vol != vol) {
-    if (new_vol > vol) {
-      if (vol_dir || new_vol - vol > 1) {
+  new_vol_wheel = 0x7f - (int) (((analogRead(vol_pin)) / 1023.0) * 0x7f);
+  if (new_vol_wheel != vol_wheel) {
+    if (new_vol_wheel > vol_wheel) {
+      if (vol_dir || new_vol_wheel - vol_wheel > 1) {
 	vol_dir = true;
-	vol = new_vol;
-	sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
-	updateDisplay();
+	vol_wheel = new_vol_wheel;
       }
     }
     else {
-      if (!vol_dir || vol - new_vol > 1) {
+      if (!vol_dir || vol_wheel - new_vol_wheel > 1) {
 	vol_dir = false;
-	vol = new_vol;
-	sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
-	updateDisplay();
+	vol_wheel = new_vol_wheel;
       }
     }
+  }
+  new_vol = getVolume(vol_wheel, getPressure());
+  if (new_vol != vol) {
+    vol = new_vol;
+    sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
   }
   // read 2nd poti
   new_wheel_val = 0x7f - (int) (((analogRead(wheel_pin)) / 1023.0) * 0x7f);
@@ -488,7 +610,6 @@ void loop() {
 	wheel_dir = true;
 	wheel_val = new_wheel_val;
 	sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
-	updateDisplay();
       }
     }
     else {
@@ -496,7 +617,6 @@ void loop() {
 	wheel_dir = false;
 	wheel_val = new_wheel_val;
 	sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
-	updateDisplay();
       }
     }
   }
