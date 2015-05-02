@@ -1,0 +1,101 @@
+#!/usr/bin/python3
+
+"""
+ Alsa_seq autoconnect script
+ Copyright (C) 2015 Valentin Pratz
+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along
+ with this program; if not, write to the Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+"""
+
+from time import sleep
+from os import listdir
+from subprocess import check_output, call, Popen
+
+
+# alsa_seq name (parts) of the devices
+USB_NAME = "USB Midi".lower()
+SERIAL_NAME = "serial".lower()
+FLUID_NAME = "FLUID Synth (".lower()
+
+
+def is_connected(lines, start_index):
+    """
+    Checks if a device is connected
+    """
+    try:
+        # Connecting message is always intended 8 spaces or a tab
+        return lines[start_index + 2].startswith(8 * " ") \
+            or lines[start_index + 2].startswith("\t")
+    except IndexError:
+        pass
+    return False
+
+
+def get_port(line):
+    """
+    Seperate the port from a line
+    """
+    line = line[7:10]
+    while not line[-1].isdigit():
+        line = line[:-1]
+    return int(line)
+
+
+if __name__ == '__main__':
+    if check_output(["ps", "-A"]).decode("utf-8").count("connect") > 1:
+        print("[connect] Already one connect process running -> Exit")
+        exit(1)
+    while True:
+        usb_port = -1
+        usb_con = False
+        serial_port = -1
+        serial_con = False
+        fluid_port = -1
+        fluid_con = False
+        a_out = [s.lower() for s in check_output(["aconnect", "-l"]).decode("utf-8").split("\n")]
+        for i in range(len(a_out)):
+            if USB_NAME in a_out[i] and a_out[i][0] != " ":
+                usb_port = get_port(a_out[i])
+                usb_con = is_connected(a_out, i)
+            elif SERIAL_NAME in a_out[i] and a_out[i][0] != " ":
+                serial_port = get_port(a_out[i])
+                serial_con = is_connected(a_out, i)
+            elif FLUID_NAME in a_out[i] and a_out[i][0] != " ":
+                fluid_port = get_port(a_out[i])
+                fluid_con = is_connected(a_out, i)
+        if fluid_port < 0:
+            # fluidsynth not running -> nothing to do
+            pass
+        elif usb_port > 0 and not usb_con:
+            # we have an midi to usb adapter -> Use it, it's faster
+            print("[connect] Connect {}".format(USB_NAME))
+            call(["aconnect", "-x"])
+            call(["aconnect", str(usb_port), str(fluid_port)])
+        elif serial_port > 0 and not fluid_con and usb_port < 0:
+            # we have an serial to midi converter.
+            print("[connect] Connect {}".format(SERIAL_NAME))
+            call(["aconnect", "-x"])
+            call(["aconnect", str(serial_port), str(fluid_port)])
+        elif not fluid_con and usb_port < 0 and serial_port < 0:
+            # fluidsynth running, but no midi device available
+            # try starting serial to midi converter
+            # search device which starts with /dev/ttyACM
+            #
+            # Uses serial-to-midi from https://github.com/valentin12/serial-to-midi
+            devices = [dev for dev in listdir("/dev/") if dev.startswith("ttyACM")]
+            if len(devices) > 0:
+                print("[connect] Start serial-to-midi as \"{}\" on /dev/{}".format(SERIAL_NAME, devices[0]))
+                Popen(["serial-to-midi", "-n serial", "/dev/" + devices[0], "115200"])
+        sleep(2)
