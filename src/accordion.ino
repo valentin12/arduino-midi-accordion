@@ -19,6 +19,7 @@
 
 #include <LiquidCrystal.h>
 #include <BMP280.h>
+#include <EEPROM.h>
 
 LiquidCrystal lcd(22, 24, 34, 32, 30, 28);
 BMP280 bmp;
@@ -184,9 +185,9 @@ const int key_count = 26;
 // Send on MIDI channel 1
 int channel = 1;
 // Program 1: Piano
-int program = 0;
+byte program = 0;
 // Bank 1
-int bank = 0;
+byte bank = 0;
 
 // poti pins
 int vol_pin = 0;
@@ -245,8 +246,16 @@ double pressure, temperature;
 char measure_success;
 boolean use_pressure, pressure_available;
 
+// check if accordion was restarted since last action
+boolean first_act;
+
 // last status byte to implement MIDI running status
 int last_status_byte = 0;
+
+// Storage locations in EEPROM
+int use_pressure_pos = 0;
+int program_pos = 1;
+int bank_pos = 2;
 
 int getNote(const int base, const int add_octaves, const int note) {
   return base + (octave + add_octaves) * 12 + note;
@@ -274,6 +283,33 @@ int getVolume(const int vol_wheel, const double pressure) {
   return vol_wheel;
 }
 
+int getProgram() {
+  return EEPROM.read(program_pos);
+}
+
+void setProgram(byte p) {
+  program = p;
+  EEPROM.write(program_pos, p);
+}
+
+int getBank() {
+  return EEPROM.read(bank_pos);
+}
+
+void setBank(byte b) {
+  bank = b;
+  EEPROM.write(bank_pos, b);
+}
+
+boolean getUsePressure() {
+  return EEPROM.read(use_pressure_pos) > 0;
+}
+
+void setUsePressure(boolean u_p) {
+  use_pressure = u_p;
+  EEPROM.write(use_pressure_pos, u_p);
+}
+
 void updateDisplay() {
   // clear display
   lcd.clear();
@@ -298,6 +334,11 @@ void updateDisplay() {
   // write in command mode
   if (command_mode)
     lcd.print("C");
+  // no action since start
+  if (first_act) {
+    lcd.setCursor(12, 1);
+    lcd.print("N");
+  }
 };
 
 void sendMIDI(const int cmd, const int note, const int velocity) {
@@ -322,7 +363,7 @@ void sendShortMIDI(const int cmd, const int val) {
   // if (cmd != last_status_byte)
   //   Serial.write(cmd);
   // see above
-  Serial.write(cmd)
+  Serial.write(cmd);
   Serial.write(val);
   last_status_byte = cmd;
 }
@@ -353,49 +394,49 @@ void commandOctaveDown() {
 
 void commandBankUp() {
   if (bank >= 0x7f)
-    bank = 0;
+    setBank(0);
   else
-    bank++;
+    setBank(bank + 1);
   sendMIDI(CONTROL_CHANGE | channel, 0x00, bank);
 };
 
 void commandBankDown() {
   if (bank <= 0)
-    bank = 0x7f;
+    setBank(0x7f);
   else
-    bank--;
+    setBank(bank - 1);
   sendMIDI(CONTROL_CHANGE | channel, 0x00, bank);
 };
 
 void commandProgramUp() {
   if (program >= 0x7f)
-    program = 0;
+    setProgram(0);
   else
-    program++;
+    setProgram(program + 1);
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
 };
 
 void commandProgramDown() {
   if (program <= 0)
-    program = 0x7f;
+    setProgram(0x7f);
   else
-    program--;
+    setProgram(program - 1);
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
 };
 
 void commandProgramUp10() {
   if (program + 10 >= 0x7f)
-    program = program + 10 - 0x7f;
+    setProgram(program + 10 - 0x7f);
   else
-    program += 10;
+    setProgram(program + 10);
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
 };
 
 void commandProgramDown10() {
   if (program - 10 <= 0)
-    program = program + 0x7f - 10;
+    setProgram(program + 0x7f - 10);
   else
-    program -= 10;
+    setProgram(program - 10);
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
 };
 
@@ -409,7 +450,7 @@ void commandCalibrate() {
 }
 
 void commandTogglePressureUse() {
-  use_pressure = !use_pressure;
+  setUsePressure(!use_pressure);
 }
 
 boolean isCommand(const boolean pressed[], const boolean command[]) {
@@ -502,9 +543,9 @@ void setup() {
   lcd.noCursor();
   lcd.print("Setup");
   last_status_byte = 0;
-  program = 0;
+  program = getProgram();
   vol = 0x45;
-  use_pressure = true;
+  use_pressure = getUsePressure();
   // command chords
   for (int key=0;key<key_count;key++) commands[0][key] = COMMAND_RESET[key];
   for (int key=0;key<key_count;key++) commands[1][key] = COMMAND_OCTAVE_UP[key];
@@ -555,9 +596,11 @@ void setup() {
     commandCalibrate();
     bmp.setOversampling(4);
   }
-  updateDisplay();
   sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
   sendShortMIDI(PROGRAM_CHANGE | channel, program);
+  first_act = true;
+  updateDisplay();
+  delay(10);
 };
 
 // the loop routine runs over and over again forever:
@@ -580,10 +623,17 @@ void loop() {
     else {
       digitalWrite(command_led, LOW);
       command_mode = false;
+      for (int key=0;key<0x7f;key++) {
+	playing[key] = 0;
+      }
       updateDisplay();
     }
   }
   if (changed) {
+    if (first_act) {
+      first_act = false;
+      updateDisplay();
+    }
     if (command_mode) {
       execCommandMode(cur_pressed);
     }
