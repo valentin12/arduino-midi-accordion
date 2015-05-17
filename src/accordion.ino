@@ -211,8 +211,8 @@ int command_led = 13;
 int command_switch_val = 0;
 int command_switch_new_val = 0;
 boolean command_mode = false;
-int command_keys[] = {2, 3, 4, 7, 9, 11, 14, 19, 21, 5, 6};
-const int command_mode_count = 11;
+int command_keys[] = {2, 3, 4, 7, 9, 11, 14, 19, 21, 5, 6, 0};
+const int command_mode_count = 12;
 FunctionArray command_mode_functions[command_mode_count];
 
 // 3 switches for 3 octaves
@@ -453,6 +453,14 @@ void commandTogglePressureUse() {
   setUsePressure(!use_pressure);
 }
 
+void commandResendMIDI() {
+  // Sends MIDI program, bank, pitch and volume
+  sendShortMIDI(PROGRAM_CHANGE | channel, program);
+  sendMIDI(CONTROL_CHANGE | channel, 0x00, bank);
+  sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
+  sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+}
+
 boolean isCommand(const boolean pressed[], const boolean command[]) {
   for (int key=0;key<key_count;key++) {
     if (pressed[key] != command[key]) return false;
@@ -569,6 +577,7 @@ void setup() {
   command_mode_functions[8] = commandBankUp;
   command_mode_functions[9] = commandProgramDown10;
   command_mode_functions[10] = commandProgramUp10;
+  command_mode_functions[11] = commandResendMIDI;
 
   for (int i=0;i<0x7f;i++) {
     playing[i] = 0;

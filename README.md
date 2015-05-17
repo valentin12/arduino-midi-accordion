@@ -24,7 +24,6 @@ If someone has a question about a technical detail, feel free to open an issue o
 <img src="img/accordion_front.jpg" style="width:400px;height:299px;border-radius:10px;margin:5px;clear:both;float:left;">
 <img src="img/accordion_back.jpg" style="width:400px;height:312px;border-radius:10px;margin:5px;float:left;">
 <img src="img/full_top.jpg" style="width:800px;height:592px;border-radius:10px;margin:5px;clear:both;float:left;">
-<img src="img/case_model.png" style="width:400px;height:136px;border-radius:10px;margin:5px;float:left;margin-top:100px;clear:both;">
 <img src="img/detail_connectors.jpg" style="width:400px;height:296px;border-radius:10px;margin:5px;float:left;">
 <img src="img/detail_angle.jpg" style="width:400px;height:296px;border-radius:10px;margin:5px;float:left;clear:both">
 <img src="img/detail_switches.jpg" style="width:400px;height:296px;border-radius:10px;margin:5px;float:left;">
