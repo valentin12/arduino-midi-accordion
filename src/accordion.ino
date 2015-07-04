@@ -155,6 +155,9 @@ const char PROGRAMS[][27] = {
   "128 Gunshot"
 };
 
+enum PlayMode {MELODY,
+               DRUMS};
+
 // MIDI commands
 const int NOTE_ON = 0x90;
 const int CONTROL_CHANGE = 0xB0;
@@ -205,14 +208,15 @@ boolean vol_dir = false;
 
 int note_vol = 0x45;
 
+int play_mode; // defines wether to play melody or drums
 // COMMAND MODE
 int command_switch = 46;
 int command_led = 13;
 int command_switch_val = 0;
 int command_switch_new_val = 0;
 boolean command_mode = false;
-int command_keys[] = {2, 3, 4, 7, 9, 11, 14, 19, 21, 5, 6, 0};
-const int command_mode_count = 12;
+int command_keys[] = {2, 3, 4, 7, 9, 11, 14, 19, 21, 5, 6, 0, 23};
+const int command_mode_count = 13;
 FunctionArray command_mode_functions[command_mode_count];
 
 // 3 switches for 3 octaves
@@ -246,6 +250,14 @@ double pressure, temperature;
 char measure_success;
 boolean use_pressure, pressure_available;
 
+// drum mode
+//                   h   c   cis d   dis e   f   fis g   gis a   ais h
+int drum_layout[] = {58, 77, 76, 41, 42, 40, 36, 37, 43, 39, 42, 49, 51,
+//                   c   cis d   dis e   f   fis g   gis a   ais h   c
+                     38, 44, 45, 46, 47, 48, 50, 53, 55, 56, 57, 80, 74};
+int drum_channel = 9;
+int drum_vol = 0x7f;
+
 // check if accordion was restarted since last action
 boolean first_act;
 
@@ -256,10 +268,40 @@ int last_status_byte = 0;
 int use_pressure_pos = 0;
 int program_pos = 1;
 int bank_pos = 2;
+int play_mode_pos = 3;
 
 int getNote(const int base, const int add_octaves, const int note) {
   return base + (octave + add_octaves) * 12 + note;
 };
+
+
+
+void sendMIDI(const int cmd, const int note, const int velocity) {
+  if (cmd != last_status_byte)
+    Serial1.write(cmd);
+  Serial1.write(note);
+  Serial1.write(velocity);
+  // if (cmd != last_status_byte)
+  //  Serial.write(cmd);
+  // do not use running status over USB. The serial to MIDI
+  // converter has problems with it
+  Serial.write(cmd);
+  Serial.write(note);
+  Serial.write(velocity);
+  last_status_byte = cmd;
+};
+
+void sendShortMIDI(const int cmd, const int val) {
+  if (cmd != last_status_byte)
+    Serial1.write(cmd);
+  Serial1.write(val);
+  // if (cmd != last_status_byte)
+  //   Serial.write(cmd);
+  // see above
+  Serial.write(cmd);
+  Serial.write(val);
+  last_status_byte = cmd;
+}
 
 double getPressure() {
   measure_success = bmp.startMeasurment();
@@ -310,12 +352,28 @@ void setUsePressure(boolean u_p) {
   EEPROM.write(use_pressure_pos, u_p);
 }
 
+int getPlayMode() {
+  return EEPROM.read(play_mode_pos);
+}
+
+void setPlayMode(int mode) {
+  play_mode = mode;
+  sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
+  for (int note=0;note<0x7f;note++) playing[note] = 0;
+  EEPROM.write(play_mode_pos, mode);
+}
+
 void updateDisplay() {
   // clear display
   lcd.clear();
   lcd.setCursor(0, 0);
   // write program name
-  lcd.print(PROGRAMS[program]);
+  if (play_mode == DRUMS) {
+    lcd.print("  DRUMS   ");
+  }
+  else {
+    lcd.print(PROGRAMS[program]);
+  }
   lcd.setCursor(0, 1);
   // write octave difference
   lcd.print(octave);
@@ -340,33 +398,6 @@ void updateDisplay() {
     lcd.print("N");
   }
 };
-
-void sendMIDI(const int cmd, const int note, const int velocity) {
-  if (cmd != last_status_byte)
-    Serial1.write(cmd);
-  Serial1.write(note);
-  Serial1.write(velocity);
-  // if (cmd != last_status_byte)
-  //  Serial.write(cmd);
-  // do not use running status over USB. The serial to MIDI
-  // converter has problems with it
-  Serial.write(cmd);
-  Serial.write(note);
-  Serial.write(velocity);
-  last_status_byte = cmd;
-};
-
-void sendShortMIDI(const int cmd, const int val) {
-  if (cmd != last_status_byte)
-    Serial1.write(cmd);
-  Serial1.write(val);
-  // if (cmd != last_status_byte)
-  //   Serial.write(cmd);
-  // see above
-  Serial.write(cmd);
-  Serial.write(val);
-  last_status_byte = cmd;
-}
 
 void commandReset() {
   sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
@@ -455,10 +486,27 @@ void commandTogglePressureUse() {
 
 void commandResendMIDI() {
   // Sends MIDI program, bank, pitch and volume
-  sendShortMIDI(PROGRAM_CHANGE | channel, program);
-  sendMIDI(CONTROL_CHANGE | channel, 0x00, bank);
-  sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
-  sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+  int channels[] = {channel, drum_channel};
+  for (int i=0; i<2;i++) {
+    sendShortMIDI(PROGRAM_CHANGE | channels[i], program);
+    sendMIDI(CONTROL_CHANGE | channels[i], 0x00, bank);
+    sendMIDI(PITCH_BEND_CHANGE | channels[i], 0, wheel_val);
+    sendMIDI(CONTROL_CHANGE | channels[i], 0x07, vol);
+  }
+}
+
+void commandTooglePlayMode() {
+  /*
+  Toggles play mode between melody (normal playing on the defined channel)
+  and drum mode (playing with the layout specified above and sending on
+  channel 10)
+  */
+  if (play_mode == MELODY) {
+    setPlayMode(DRUMS);
+  }
+  else {
+    setPlayMode(MELODY);
+  }
 }
 
 boolean isCommand(const boolean pressed[], const boolean command[]) {
@@ -468,15 +516,31 @@ boolean isCommand(const boolean pressed[], const boolean command[]) {
   return true;
 };
 
+boolean computeDrumKeyInput(int key) {
+  // returns wether key changed
+  if (cur_pressed[key] == HIGH && !last_pressed[key]) {
+    sendMIDI(NOTE_ON | drum_channel, drum_layout[key], drum_vol);
+    last_pressed[key] = true;
+    return true;
+  }
+  else if (cur_pressed[key] == LOW && last_pressed[key]) {
+    sendMIDI(NOTE_ON | drum_channel, drum_layout[key], 0);
+    last_pressed[key] = false;
+    return true;
+  }
+  return false;
+};
+
 boolean computeKeyInput(int key) {
+  // returns wether key changed
   if (cur_pressed[key] == HIGH && !last_pressed[key]) {
     // iteration for octave switches
     for (int l=0;l<3;l++) {
       if (switch_vals[l] > 0) {
-	playing[getNote(base_note, l - 1, key)] += 1;
-	if (playing[getNote(base_note, l - 1, key)] < 2) {
-	  sendMIDI(NOTE_ON | channel, getNote(base_note, l - 1, key), note_vol);
-	}
+        playing[getNote(base_note, l - 1, key)] += 1;
+        if (playing[getNote(base_note, l - 1, key)] < 2) {
+          sendMIDI(NOTE_ON | channel, getNote(base_note, l - 1, key), note_vol);
+        }
       }
     }
     last_pressed[key] = true;
@@ -485,10 +549,10 @@ boolean computeKeyInput(int key) {
   else if (cur_pressed[key] == LOW && last_pressed[key]) {
     for (int l=0;l<3;l++) {
       if (switch_vals[l] && playing[getNote(base_note, l - 1, key)] > 0) {
-	playing[getNote(base_note, l - 1, key)] -= 1;
-	if (playing[getNote(base_note, l - 1, key)] == 0) {
-	  sendMIDI(NOTE_ON | channel, getNote(base_note, l - 1, key), 0);
-	}
+        playing[getNote(base_note, l - 1, key)] -= 1;
+        if (playing[getNote(base_note, l - 1, key)] == 0) {
+          sendMIDI(NOTE_ON | channel, getNote(base_note, l - 1, key), 0);
+        }
       }
     }
     last_pressed[key] = false;
@@ -512,26 +576,26 @@ void computeSwitchInput(int switch_ind, int value) {
   if (value != switch_vals[switch_ind]) {
     for (int key=0;key<key_count;key++) {
       if (last_pressed[key] &&
-	  value == LOW &&
-	  playing[getNote(base_note, switch_ind - 1, key)] > 0) {
-	// remove playing from octave
-	playing[getNote(base_note, switch_ind - 1, key)] -= 1;
-	if (playing[getNote(base_note, switch_ind - 1, key)] <= 0) {
-	  sendMIDI(NOTE_ON | channel, getNote(base_note, switch_ind - 1, key), 0);
-	}
+    value == LOW &&
+    playing[getNote(base_note, switch_ind - 1, key)] > 0) {
+  // remove playing from octave
+  playing[getNote(base_note, switch_ind - 1, key)] -= 1;
+  if (playing[getNote(base_note, switch_ind - 1, key)] <= 0) {
+    sendMIDI(NOTE_ON | channel, getNote(base_note, switch_ind - 1, key), 0);
+  }
       }
       else if (last_pressed[key] &&
-	       value == HIGH) {
-	playing[getNote(base_note, switch_ind - 1, key)] += 1;
-	if (playing[getNote(base_note, switch_ind - 1, key)] < 2) {
-	  sendMIDI(NOTE_ON | channel, getNote(base_note, switch_ind - 1, key), note_vol);
-	}
+         value == HIGH) {
+  playing[getNote(base_note, switch_ind - 1, key)] += 1;
+  if (playing[getNote(base_note, switch_ind - 1, key)] < 2) {
+    sendMIDI(NOTE_ON | channel, getNote(base_note, switch_ind - 1, key), note_vol);
+  }
       }
     }
     switch_vals[switch_ind] = value;
     sendMIDI(CONTROL_CHANGE | channel,
-	     0x75 + switch_ind,
-	     switch_vals[switch_ind] == HIGH ? 0x7f : 0);
+       0x75 + switch_ind,
+       switch_vals[switch_ind] == HIGH ? 0x7f : 0);
   }
 };
 
@@ -548,12 +612,13 @@ void execCommandMode(boolean cur_pressed[]) {
 // the setup routine runs once when you press reset:
 void setup() {
   lcd.begin(16, 2);
-  lcd.noCursor();
   lcd.print("Setup");
+  lcd.noCursor();
   last_status_byte = 0;
   program = getProgram();
   vol = 0x45;
   use_pressure = getUsePressure();
+  play_mode = getPlayMode();
   // command chords
   for (int key=0;key<key_count;key++) commands[0][key] = COMMAND_RESET[key];
   for (int key=0;key<key_count;key++) commands[1][key] = COMMAND_OCTAVE_UP[key];
@@ -578,6 +643,7 @@ void setup() {
   command_mode_functions[9] = commandProgramDown10;
   command_mode_functions[10] = commandProgramUp10;
   command_mode_functions[11] = commandResendMIDI;
+  command_mode_functions[12] = commandTooglePlayMode;
 
   for (int i=0;i<0x7f;i++) {
     playing[i] = 0;
@@ -633,7 +699,7 @@ void loop() {
       digitalWrite(command_led, LOW);
       command_mode = false;
       for (int key=0;key<0x7f;key++) {
-	playing[key] = 0;
+        playing[key] = 0;
       }
       updateDisplay();
     }
@@ -646,12 +712,20 @@ void loop() {
     if (command_mode) {
       execCommandMode(cur_pressed);
     }
+    else if (play_mode == DRUMS) {
+      is_chord_command = computeCommands(cur_pressed);
+      if (!is_chord_command) {
+        for (int key=0;key<key_count;key++) {
+          computeDrumKeyInput(key);
+        }
+      }
+    }
     else {
       is_chord_command = computeCommands(cur_pressed);
       if (!is_chord_command) {
-	for (int key=0;key<key_count;key++) {
-	  computeKeyInput(key);
-	}
+        for (int key=0;key<key_count;key++) {
+          computeKeyInput(key);
+        }
       }
     }
     for (int key=0;key<key_count;key++) {
@@ -664,14 +738,14 @@ void loop() {
   if (new_vol_wheel != vol_wheel) {
     if (new_vol_wheel > vol_wheel) {
       if (vol_dir || new_vol_wheel - vol_wheel > 1) {
-	vol_dir = true;
-	vol_wheel = new_vol_wheel;
+        vol_dir = true;
+        vol_wheel = new_vol_wheel;
       }
     }
     else {
       if (!vol_dir || vol_wheel - new_vol_wheel > 1) {
-	vol_dir = false;
-	vol_wheel = new_vol_wheel;
+        vol_dir = false;
+        vol_wheel = new_vol_wheel;
       }
     }
   }
@@ -679,22 +753,25 @@ void loop() {
   if (new_vol != vol) {
     vol = new_vol;
     sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
+    sendMIDI(CONTROL_CHANGE | drum_channel, 0x07, vol);
   }
   // read 2nd poti
   new_wheel_val = 0x7f - (int) (((analogRead(wheel_pin)) / 1023.0) * 0x7f);
   if (new_wheel_val != wheel_val) {
     if (new_wheel_val > wheel_val) {
       if (wheel_dir || new_wheel_val - wheel_val > 1) {
-	wheel_dir = true;
-	wheel_val = new_wheel_val;
-	sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
+        wheel_dir = true;
+        wheel_val = new_wheel_val;
+        sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
+        sendMIDI(PITCH_BEND_CHANGE | drum_channel, 0, wheel_val);
       }
     }
     else {
       if (!wheel_dir || wheel_val - new_wheel_val > 1) {
-	wheel_dir = false;
-	wheel_val = new_wheel_val;
-	sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
+        wheel_dir = false;
+        wheel_val = new_wheel_val;
+        sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
+        sendMIDI(PITCH_BEND_CHANGE | drum_channel, 0, wheel_val);
       }
     }
   }
