@@ -187,6 +187,7 @@ const boolean COMMAND_PROGRAM_DOWN[] = {
 const int key_count = 26;
 // Send on MIDI channel 1
 int channel = 1;
+int cur_channel = channel;
 // Program 1: Piano
 byte program = 0;
 // Bank 1
@@ -400,7 +401,7 @@ void updateDisplay() {
 };
 
 void commandReset() {
-  sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
+  sendMIDI(CONTROL_CHANGE | cur_channel, 0x7B, 0);
   lcd.clear();
   lcd.setCursor(0, 0);
   delay(1000);
@@ -486,12 +487,11 @@ void commandTogglePressureUse() {
 
 void commandResendMIDI() {
   // Sends MIDI program, bank, pitch and volume
-  int channels[] = {channel, drum_channel};
   for (int i=0; i<2;i++) {
-    sendShortMIDI(PROGRAM_CHANGE | channels[i], program);
-    sendMIDI(CONTROL_CHANGE | channels[i], 0x00, bank);
-    sendMIDI(PITCH_BEND_CHANGE | channels[i], 0, wheel_val);
-    sendMIDI(CONTROL_CHANGE | channels[i], 0x07, vol);
+    sendShortMIDI(PROGRAM_CHANGE | cur_channel, program);
+    sendMIDI(CONTROL_CHANGE | cur_channel, 0x00, bank);
+    sendMIDI(PITCH_BEND_CHANGE | cur_channel, 0, wheel_val);
+    sendMIDI(CONTROL_CHANGE | cur_channel, 0x07, vol);
   }
 }
 
@@ -503,9 +503,11 @@ void commandTooglePlayMode() {
   */
   if (play_mode == MELODY) {
     setPlayMode(DRUMS);
+    cur_channel = drum_channel;;
   }
   else {
     setPlayMode(MELODY);
+    cur_channel = channel;
   }
 }
 
@@ -619,6 +621,7 @@ void setup() {
   vol = 0x45;
   use_pressure = getUsePressure();
   play_mode = getPlayMode();
+  if (play_mode == DRUMS) cur_channel = drum_channel;  else cur_channel=channel;
   // command chords
   for (int key=0;key<key_count;key++) commands[0][key] = COMMAND_RESET[key];
   for (int key=0;key<key_count;key++) commands[1][key] = COMMAND_OCTAVE_UP[key];
@@ -671,8 +674,8 @@ void setup() {
     commandCalibrate();
     bmp.setOversampling(4);
   }
-  sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
-  sendShortMIDI(PROGRAM_CHANGE | channel, program);
+  sendMIDI(CONTROL_CHANGE | cur_channel, 0x07, vol);
+  sendShortMIDI(PROGRAM_CHANGE | cur_channel, program);
   first_act = true;
   updateDisplay();
   delay(10);
@@ -693,7 +696,7 @@ void loop() {
       digitalWrite(command_led, HIGH);
       command_mode = true;
       updateDisplay();
-      sendMIDI(CONTROL_CHANGE | channel, 0x7B, 0);
+      sendMIDI(CONTROL_CHANGE | cur_channel, 0x7B, 0);
     }
     else {
       digitalWrite(command_led, LOW);
@@ -752,8 +755,7 @@ void loop() {
   new_vol = getVolume(vol_wheel, getPressure());
   if (new_vol != vol) {
     vol = new_vol;
-    sendMIDI(CONTROL_CHANGE | channel, 0x07, vol);
-    sendMIDI(CONTROL_CHANGE | drum_channel, 0x07, vol);
+    sendMIDI(CONTROL_CHANGE | cur_channel, 0x07, vol);
   }
   // read 2nd poti
   new_wheel_val = 0x7f - (int) (((analogRead(wheel_pin)) / 1023.0) * 0x7f);
@@ -762,16 +764,14 @@ void loop() {
       if (wheel_dir || new_wheel_val - wheel_val > 1) {
         wheel_dir = true;
         wheel_val = new_wheel_val;
-        sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
-        sendMIDI(PITCH_BEND_CHANGE | drum_channel, 0, wheel_val);
+        sendMIDI(PITCH_BEND_CHANGE | cur_channel, 0, wheel_val);
       }
     }
     else {
       if (!wheel_dir || wheel_val - new_wheel_val > 1) {
         wheel_dir = false;
         wheel_val = new_wheel_val;
-        sendMIDI(PITCH_BEND_CHANGE | channel, 0, wheel_val);
-        sendMIDI(PITCH_BEND_CHANGE | drum_channel, 0, wheel_val);
+        sendMIDI(PITCH_BEND_CHANGE | cur_channel, 0, wheel_val);
       }
     }
   }
