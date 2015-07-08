@@ -60,42 +60,45 @@ if __name__ == '__main__':
     while True:
         usb_port = -1
         usb_con = False
-        serial_port = -1
-        serial_con = False
+        serial_ports = []
         fluid_port = -1
         fluid_con = False
-        a_out = [s.lower() for s in check_output(["aconnect", "-l"]).decode("utf-8").split("\n")]
+        a_out = [s.lower() for s in
+                 check_output(["aconnect", "-l"]).decode("utf-8").split("\n")]
         for i in range(len(a_out)):
             if USB_NAME in a_out[i] and a_out[i][0] != " ":
                 usb_port = get_port(a_out[i])
                 usb_con = is_connected(a_out, i)
             elif SERIAL_NAME in a_out[i] and a_out[i][0] != " ":
-                serial_port = get_port(a_out[i])
-                serial_con = is_connected(a_out, i)
+                cur_serial = [get_port(a_out[i]), is_connected(a_out, i)]
+                serial_ports.append(cur_serial)
             elif FLUID_NAME in a_out[i] and a_out[i][0] != " ":
                 fluid_port = get_port(a_out[i])
                 fluid_con = is_connected(a_out, i)
         if fluid_port < 0:
             # fluidsynth not running -> nothing to do
-            pass
+            sleep(1)
+            continue
         elif usb_port > 0 and not usb_con:
-            # we have an midi to usb adapter -> Use it, it's faster
+            # we have an midi to usb adapter.
             print("[connect] Connect {}".format(USB_NAME))
-            call(["aconnect", "-x"])
             call(["aconnect", str(usb_port), str(fluid_port)])
-        elif serial_port > 0 and not fluid_con and usb_port < 0:
+        for serial in serial_ports:
             # we have an serial to midi converter.
-            print("[connect] Connect {}".format(SERIAL_NAME))
-            call(["aconnect", "-x"])
-            call(["aconnect", str(serial_port), str(fluid_port)])
-        elif not fluid_con and usb_port < 0 and serial_port < 0:
-            # fluidsynth running, but no midi device available
-            # try starting serial to midi converter
-            # search device which starts with /dev/ttyACM
-            #
-            # Uses serial-to-midi from https://github.com/valentin12/serial-to-midi
-            devices = [dev for dev in listdir("/dev/") if dev.startswith("ttyACM")]
-            if len(devices) > 0:
-                print("[connect] Start serial-to-midi as \"{}\" on /dev/{}".format(SERIAL_NAME, devices[0]))
-                Popen(["serial-to-midi", "-n serial", "/dev/" + devices[0], "115200"])
-        sleep(2)
+            if not serial[1]:
+                # connect serial
+                print("[connect] Connect {}".format(SERIAL_NAME))
+                call(["aconnect", str(serial[0]), str(fluid_port)])
+
+        # fluidsynth running, check for new plugged in devices
+        devices = [dev for dev in listdir("/dev/") if dev.startswith("ttyACM")]
+        for device in devices:
+            if not device.lower() in "\n".join(a_out):
+                # New device found. Connect over serial.
+                # Uses serial-to-midi from
+                # https://github.com/valentin12/serial-to-midi
+                print("[connect] Start serial-to-midi as \"{}{}\" on /dev/{}"
+                      .format(SERIAL_NAME, device, device))
+                Popen(["serial-to-midi", "-n {}{}".format(
+                    SERIAL_NAME, device), "/dev/" + device, "115200"])
+        sleep(1)
