@@ -665,7 +665,7 @@ void setup() {
   // to get MIDI on TX1 (pin 18)
   Serial1.begin(31250);
   while(!Serial1) ;
-  // Setup Serial (TX0 and USB) with the baudrate 9600 to be able to use
+  // Setup Serial (TX0 and USB) with the baudrate 115200 to be able to use
   // an Serial to MIDI converter on a PC
   Serial.begin(115200);
   while(!Serial) ;
