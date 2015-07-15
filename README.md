@@ -22,6 +22,9 @@ If someone has a question about a technical detail, feel free to open an issue o
 
 <h2 style="float:left;clear:both;">Images</h2>
 <img src="img/accordion_front.jpg" style="width:400px;height:299px;border-radius:10px;margin:5px;clear:both;float:left;">
+Image of the presentation at "Testo Schülerwettbewerb (german: student contest)" where
+the project got the first price in category "Beginners"
+<img src="img/presentation_1.jpg" style="width:400px;height:312px;border-radius:10px;margin:5px;float:left;">
 <img src="img/accordion_back.jpg" style="width:400px;height:312px;border-radius:10px;margin:5px;float:left;">
 <img src="img/full_top.jpg" style="width:800px;height:592px;border-radius:10px;margin:5px;clear:both;float:left;">
 <img src="img/detail_connectors.jpg" style="width:400px;height:296px;border-radius:10px;margin:5px;float:left;">
